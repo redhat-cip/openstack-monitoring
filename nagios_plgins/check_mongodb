@@ -1,0 +1,17 @@
+#!/bin/bash
+
+STATE_OK=0
+STATE_WARNING=1
+STATE_CRITICAL=2
+STATE_UNKNOWN=3
+STATE_DEPENDENT=4
+
+echo 'db.stats()' | mongo ceilometer | grep ok  >/dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+	echo "MongoDB is Down"
+	exit $STATE_CRITICAL
+fi
+
+echo "Mongodb is alive"
+exit $STATE_OK

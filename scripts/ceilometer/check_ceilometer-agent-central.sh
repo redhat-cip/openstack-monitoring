@@ -20,7 +20,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-set -e
+#set -e
 
 STATE_OK=0
 STATE_WARNING=1
@@ -31,7 +31,8 @@ STATE_DEPENDENT=4
 
 PID=$(pidof -x ceilometer-agent-central)
 
-if ! KEY=$(netstat -epta 2>/dev/null | grep $PID 2>/dev/null | grep amqp) || test -z $PID
+AMQP_PORT=$(grep amqp /etc/services|head -n 1|cut -f 1 -d '/'| awk '{print $2}')
+if ! KEY=$(netstat -nepta 2>/dev/null | grep $PID 2>/dev/null | grep ":$AMQP_PORT") || test -z "$PID"
 then
     echo "Ceilometer Central Agent is not connected to AMQP."
     exit $STATE_CRITICAL

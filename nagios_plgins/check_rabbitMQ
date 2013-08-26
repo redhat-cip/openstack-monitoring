@@ -1,0 +1,31 @@
+#!/bin/bash
+
+STATE_OK=0
+STATE_WARNING=1
+STATE_CRITICAL=2
+STATE_UNKNOWN=3
+STATE_DEPENDENT=4
+
+if ! which rabbitmqctl >/dev/null 2>&1
+then
+	echo "rabbitmqctl not installed"
+	exit $STATE_UNKNOWN
+fi
+
+rabbitmqctl status|grep '{pid,'>/dev/null
+if [ $? -ne 0 ]; then
+	echo "RabbitMQ is Down"
+	exit $STATE_CRITICAL
+fi
+ERR_QUEUE="notifications.error"
+
+nb_error=$(rabbitmqctl list_queues | grep "^$ERR_QUEUE" | awk '{print $2'})
+
+if [ $nb_error -gt 0 ]; then
+	echo "$nb_error Error(s) in queue $ERR_QUEUE"
+	exit $STATE_WARNING
+fi
+
+echo "RabbitMQ is alive with no error message"
+exit $STATE_OK
+

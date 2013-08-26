@@ -71,13 +71,46 @@ then
     exit $STATE_UNKNOWN
 fi
 
+NONUM=""
+NO=""
+unset http_proxy
+statistics()
+{
+	meter=$1
+	samples=$(ceilometer statistics -m $meter -q "timestamp>=$BEGIN" 2>/dev/null |grep -v '+'|grep -v Count|cut -d '|' -f 5)
+	if [ -z "$samples" ]; then
+	    echo "Unable to list $meter sample"
+	    #exit $STATE_CRITICAL
+	    NO="$NO$meter "
+	elif [ ! "$samples" -gt 0 ]; then
+	    echo -n "No '$meter' sample / "
+	    NONUM="$NONUM$meter "
+	else
+ 	    echo -n "'$meter': $samples samples / "
+	fi
+}
 
-if ! KEY=$(ceilometer meter-list 2>/dev/null)
-then
-    echo "Unable to list meters"
-    exit $STATE_CRITICAL
+LAST_HOUR=2
+set -x
+BEGIN_HOUR=$(date '+%k')
+if [ "$BEGIN_HOUR" -gt 1 ]; then
+	BEGIN_HOUR=$(($BEGIN_HOUR-$LAST_HOUR))
+fi
+BEGIN_HOUR=$(printf '%.2d' $BEGIN_HOUR)
+BEGIN=$(date "+%Y-%m-%dT$BEGIN_HOUR:00:00")
+
+statistics image
+statistics cpu_util
+statistics ip.floating
+
+if [ -n "$NO" ]; then
+	echo -n "no sample for : $NO /"
+	exit $STATE_CRITICAL
+fi
+if [ -n "$NONUM" ]; then
+	echo -n "no sample for : $NONUM /"
+	exit $STATE_WARNING
 fi
 
-count=$(($(ceilometer meter-list 2>/dev/null | wc -l)-4))
-
-echo "Ceilometer API is working with $count meters."
+echo "Ceilometer API is working"
+exit $STATE_OK
