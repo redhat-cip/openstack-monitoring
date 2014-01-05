@@ -20,7 +20,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-set -e
 
 STATE_OK=0
 STATE_WARNING=1
