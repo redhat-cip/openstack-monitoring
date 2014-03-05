@@ -86,4 +86,4 @@ if [ -z "$TOKEN" ]; then
 fi
 
 #echo key value operator limit alert
-echo "TIME $TIME > $TIMEOUT Get token using {value}s, timeout {limit}s"
+echo "TIME $TIME > $TIMEOUT Get token using ${TIME}s, timeout ${TIMEOUT}s"
