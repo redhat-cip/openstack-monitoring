@@ -36,9 +36,10 @@ usage ()
     echo " -H <Auth URL>    URL for obtaining an auth token. Ex : http://localhost:5000/v2.0"
     echo " -U <username>    Username to use to get an auth token"
     echo " -P <password>    Password to use ro get an auth token"
+    echo " -T <timeout>     Timeout to get a token. Default: 10s"
 }
 
-while getopts 'hH:U:P:' OPTION
+while getopts 'hH:U:P:T:' OPTION
 do
     case $OPTION in
         h)
@@ -53,6 +54,9 @@ do
             ;;
         P)
             export OS_PASSWORD=$OPTARG
+            ;;
+        T)
+            export TIMEOUT=$OPTARG
             ;;
         *)
             usage
@@ -75,13 +79,14 @@ TOKEN=$(curl -X 'POST' ${OS_AUTH_URL}/tokens -d '{"auth":{"passwordCredentials":
 END=`date +%s`
 
 TIME=$((END-START))
+TIMEOUT=${TIMEOUT:-10}
 
 if [ -z "$TOKEN" ]; then
     echo "Unable to get a token"
     exit $STATE_CRITICAL
 else
-    if [ $TIME -gt 10 ]; then
-        echo "Get a token after 10 seconds, it's too long."
+    if [ $TIME -gt $TIMEOUT ]; then
+        echo "Get a token after ${TIME} seconds, Timeout: ${TIMEOUT}s."
         exit $STATE_WARNING
     else
         echo "Got a token, Keystone API is working."
