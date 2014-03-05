@@ -82,14 +82,8 @@ TIME=$((END-START))
 TIMEOUT=${TIMEOUT:-10}
 
 if [ -z "$TOKEN" ]; then
-    echo "Unable to get a token"
-    exit $STATE_CRITICAL
-else
-    if [ $TIME -gt $TIMEOUT ]; then
-        echo "Get a token after ${TIME} seconds, Timeout: ${TIMEOUT}s."
-        exit $STATE_WARNING
-    else
-        echo "Got a token, Keystone API is working."
-        exit $STATE_OK
-    fi
+    TIME=-1
 fi
+
+#echo key value operator limit alert
+echo "TIME $TIME > $TIMEOUT Get token using ${TIME}s, timeout ${TIMEOUT}s"
