@@ -24,6 +24,7 @@
 import os
 import sys
 import json
+from sys import argv
 
 STATE_OK=0
 STATE_WARNING=1
@@ -31,13 +32,19 @@ STATE_CRITICAL=2
 STATE_UNKNOWN=3
 STATE_DEPENDENT=4
 
+dispersion_config = os.getenv("SWIFT_DISPERSION_CONFIG", "/etc/swift/swift.conf")
+if len(argv) > 1:
+    dispersion_config = argv[1]
+
 with os.popen("swift-dispersion-report -j %s" \
-                  % os.getenv("SWIFT_DISPERSION_CONFIG", "/etc/swift/swift.conf")) as report:
+                  % dispersion_config) as report:
     stats = json.load(report)
 
 msgs = []
 state = STATE_OK
 missing_critical = int(os.getenv("SWIFT_DISPERSION_MISSING_CRITICAL", 3))
+if len(argv) > 2:
+    missing_critical = int(argv[2])
 
 # type_ is either "objects", "container"
 for type_, values in stats.iteritems():
