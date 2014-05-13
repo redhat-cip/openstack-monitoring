@@ -37,23 +37,20 @@ with os.popen("swift-dispersion-report -j %s" \
 
 msgs = []
 state = STATE_OK
+missing_critical = int(os.getenv("SWIFT_DISPERSION_MISSING_CRITICAL", 3))
 
 # type_ is either "objects", "container"
 for type_, values in stats.iteritems():
 
     msgs.append("%.2f%% %ss found" % (values['pct_found'], type_))
 
-    if values['missing_one'] > 0:
-        msgs.append("%d %ss missing one copy" % (values['missing_one'], type_))
-        state = max(state, STATE_WARNING)
-
-    if values['missing_two'] > 0:
-        msgs.append("%d %ss missing two copies" % (values['missing_two'], type_))
-        state = max(state, STATE_WARNING)
-
-    if values['missing_all'] > 0:
-        msgs.append("%d %ss missing ALL copies" % (values['missing_all'], type_))
-        state = max(state, STATE_CRITICAL)
+    for i in range(1,missing_critical+1):
+        if values.get("missing_%i" % i, 0) > 0:
+            msgs.append("%d %ss missing %i copies" % (values["missing_%i" % i], type_, i))
+            if i >= missing_critical:
+                state = max(state, STATE_CRITICAL)
+            else:
+                state = max(state, STATE_WARNING)
 
 print ", ".join(msgs)
 sys.exit(state)
