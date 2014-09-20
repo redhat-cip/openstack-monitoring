@@ -22,14 +22,14 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # ## Requirements
-# 
+#
 # * python
 # * python-novaclient
-# 
+#
 # ## Arguments
-# 
+#
 # ### Optional arguments
-# 
+#
 # * `-h`: Show the help message and exit
 # * `--auth_url`: Keystone URL
 # * `--username`: Username to use for authentication
@@ -44,33 +44,35 @@
 # * `--force_delete`: If matching instances are found delete them and add a notification in the message instead of getting out in critical state
 # * `--api_version`: Version of the API to use. 2 by default. (1.1 supported, and 3 not tested)
 # * `--timeout`: Max number of second to create/destroy a instance (120 by default).
+# * `--insecure`: The server's certificate will not be verified.
+# * `--network_id`: Override the network ID to use.
 # * `--verbose`: Print requests on stderr
-# 
+#
 # ## Usage
-# 
+#
 # * `check_nova-instance.py --auth_url $OS_AUTH_URL --username $OS_USERNAME --tenant $OS_TENANT_NAME --password $OS_PASSWORD --api_version '2' --instance_name 'test_from_api' --endpoint_url http://localhost`
-# 
+#
 # For a asynchronous usage relative to a nagios check, one can use [cache_check.py](https://github.com/gaelL/nagios-cache-check)
-# 
+#
 # * `cache_check.py -c "check_nova-instance.py --auth_url $OS_AUTH_URL --username $OS_USERNAME --tenant $OS_TENANT_NAME --password $OS_PASSWORD --api_version '2' --instance_name 'test_from_api3' --endpoint_url http://localhost" -e 150 -d -t 130 -i 180`
-# 
-# 
+#
+#
 # ## Example.
-# 
+#
 # I want to check every 30 minutes that the vm creation is working.  I
 # estimate that about 3 minutes for the creation of a vm is too long.  I
 # want to override the endpoint url return by the catalog to be able to
 # specify one a the api server behind the load balancer.
-# 
+#
 # So every 30 minutes nagios trigger this check:
-# 
+#
 # * `cache_check.py -c "check_nova-instance.py --auth_url $OS_AUTH_URL --username $OS_USERNAME --tenant $OS_TENANT_NAME --password $OS_PASSWORD --api_version '2' --instance_name 'test_from_api3' --timeout 180 --endpoint_url http://localhost" -e 1920 -t 185 -i 1680`
-# 
+#
 # * -e 1920 -t  185 -i 1680:
 #     * the cache is expired when older than 32 minutes;
 #     * command timeout about 3 minutes 5 secondes;
 #     * the command won't be run more that once every 28 minutes (-i 1680);
-# 
+#
 
 import os
 import sys
@@ -206,13 +208,20 @@ class Novautils:
                 self.msgs.append("Cannot find the flavor %s (%s)"
                                  % (flavor_name, e))
 
-    def create_instance(self, instance_name):
+    def create_instance(self, instance_name, network_id=None):
         if not self.msgs:
             try:
-                self.instance = self.nova_client.servers.create(
-                    name=instance_name,
-                    image=self.image,
-                    flavor=self.flavor)
+                if network_id:
+                    self.instance = self.nova_client.servers.create(
+                        name=instance_name,
+                        image=self.image,
+                        flavor=self.flavor,
+                        nics=[{'net-id':network_id}])
+                else:
+                    self.instance = self.nova_client.servers.create(
+                        name=instance_name,
+                        image=self.image,
+                        flavor=self.flavor)
             except Exception as e:
                 self.msgs.append("Cannot create the vm %s (%s)"
                                  % (instance_name, e))
@@ -345,6 +354,12 @@ parser.add_argument('--timeout_delete', metavar='timeout_delete', type=int,
                     help='Max number of second to delete an existing instance'
                     + '(45 by default).')
 
+parser.add_argument('--insecure', action='store_true',
+                    help="The server's cert will not be verified")
+
+parser.add_argument('--network_id', metavar='network_id', type=str,
+                    help="Override the network ID to use")
+
 parser.add_argument('--verbose', action='count',
                     help='Print requests on stderr.')
 
@@ -359,7 +374,8 @@ try:
                          api_key=args.password,
                          auth_url=args.auth_url,
                          endpoint_type=args.endpoint_type,
-                         http_log_debug=args.verbose)
+                         http_log_debug=args.verbose,
+                         insecure=args.insecure)
 except Exception as e:
     script_critical("Error creating nova communication object: %s\n" % e)
 
@@ -384,7 +400,7 @@ util.check_existing_instance(args.instance_name,
                              args.timeout_delete)
 util.get_image(args.image_name)
 util.get_flavor(args.flavor_name)
-util.create_instance(args.instance_name)
+util.create_instance(args.instance_name, args.network_id)
 util.instance_ready(args.timeout)
 util.delete_instance()
 util.instance_deleted(args.timeout)
