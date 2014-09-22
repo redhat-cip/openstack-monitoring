@@ -81,6 +81,7 @@ import time
 import logging
 import urlparse
 from datetime import datetime
+import subprocess
 
 STATE_OK = 0
 STATE_WARNING = 1
@@ -89,8 +90,10 @@ STATE_UNKNOWN = 3
 
 default_image_name = 'cirros'
 default_flavor_name = 'm1.tiny'
-default_instance_name = 'monitoring_test'
-
+hostname = subprocess.Popen('hostname -f', shell=True,
+                            stderr=subprocess.STDOUT,
+                            stdout = subprocess.PIPE).communicate()[0]
+default_instance_name = 'monitoring_test' 
 
 def script_unknown(msg):
     sys.stderr.write("UNKNOWN - %s (UTC: %s)\n" % (msg, datetime.utcnow()))
@@ -206,16 +209,79 @@ class Novautils:
                 self.msgs.append("Cannot find the flavor %s (%s)"
                                  % (flavor_name, e))
 
-    def create_instance(self, instance_name):
+    def create_instance(self, instance_name, ssh_keypair_name):
         if not self.msgs:
             try:
                 self.instance = self.nova_client.servers.create(
                     name=instance_name,
                     image=self.image,
-                    flavor=self.flavor)
+                    flavor=self.flavor,
+                    key_name=ssh_keypair_name)
             except Exception as e:
                 self.msgs.append("Cannot create the vm %s (%s)"
                                  % (instance_name, e))
+
+    def ssh_to_instance(self, timeout, keypair_user, keypair_file, verbose):
+        if not self.msgs:
+            timer = 0
+            start = totimestamp()
+            ssh_status = ''
+            test_host = self.instance.networks.itervalues().next()[0],
+            test_command = 'uname -a; echo "nagios ssh check"; exit 0'
+            test_expect = 'nagios ssh check'
+
+            while ssh_status != "OK":
+                if timer >= timeout:
+                    self.msgs.append("Could not ssh to vm within"
+                                     + " %d seconds: %s" 
+                                     % (timeout, ssh_status))
+                    break
+
+                timer = totimestamp() - start 
+                time.sleep(1)
+
+                ssh_args = '/usr/bin/ssh'
+                ssh_args += ' -o UserKnownHostsFile=/dev/null'
+                ssh_args += ' -o StrictHostKeyChecking=no'
+                ssh_args += ' -o ConnectTimeout=10'
+                ssh_args += " -l %s" % keypair_user
+                ssh_args += " -i %s" % keypair_file
+                ssh_args += " %s" % test_host
+                ssh_args += " '%s'" % test_command
+                
+                if verbose:
+                    print ssh_args
+
+                ssh_result = subprocess.Popen(ssh_args, shell=True, 
+                             stderr=subprocess.STDOUT, 
+                             stdout = subprocess.PIPE).communicate()[0]
+
+                if verbose:
+                    print ssh_result
+
+                if "Connection timed out" in ssh_result:
+                    ssh_status = "SSH connection timed out"
+                elif "Connection refused" in ssh_result:
+                    ssh_status = "SSH connection refused"
+                elif "Permission denied" in ssh_result:
+                    ssh_status = "SSH keypair authentication failed"
+                elif "not accessible: No such file or directory" in ssh_result:
+                    ssh_status = "SSH private key file inaccessible"
+                elif "Could not resolve hostname" in ssh_result:
+                    ssh_status = "SSH cannot resolve host"
+                elif "No route to host" in ssh_result:
+                    ssh_status = "SSH has no route to host"
+                elif "Connection reset by peer" in ssh_result:
+                    ssh_status = "SSH connection reset"
+                elif test_expect in ssh_result:
+                    ssh_status = "OK"
+                else:
+                    ssh_status = "SSH failed on unknown error"
+
+                if verbose:
+                    print "ssh_status: %s" % (ssh_status)
+                    print "timer: %d/timeout: %d" % (timer, timeout)
+
 
     def instance_ready(self, timeout):
         if not self.msgs:
@@ -286,22 +352,22 @@ class Novautils:
 
 
 parser = argparse.ArgumentParser(
-    description='Check an OpenStack Keystone server.')
+    description='Check OpenStack Keystone, Nova, and VM Creation.')
 parser.add_argument('--auth_url', metavar='URL', type=str,
                     default=os.getenv('OS_AUTH_URL'),
                     help='Keystone URL')
 
 parser.add_argument('--username', metavar='username', type=str,
                     default=os.getenv('OS_USERNAME'),
-                    help='username to use for authentication')
+                    help='Username to use for authentication')
 
 parser.add_argument('--password', metavar='password', type=str,
                     default=os.getenv('OS_PASSWORD'),
-                    help='password to use for authentication')
+                    help='Password to use for authentication')
 
 parser.add_argument('--tenant', metavar='tenant', type=str,
                     default=os.getenv('OS_TENANT_NAME'),
-                    help='tenant name to use for authentication')
+                    help='Tenant name to use for authentication')
 
 parser.add_argument('--endpoint_url', metavar='endpoint_url', type=str,
                     help='Override the catalog endpoint.')
@@ -309,7 +375,7 @@ parser.add_argument('--endpoint_url', metavar='endpoint_url', type=str,
 parser.add_argument('--endpoint_type', metavar='endpoint_type', type=str,
                     default="publicURL",
                     help='Endpoint type in the catalog request.'
-                    + 'Public by default.')
+                    + ' Public by default.')
 
 parser.add_argument('--image_name', metavar='image_name', type=str,
                     default=default_image_name,
@@ -328,8 +394,8 @@ parser.add_argument('--instance_name', metavar='instance_name', type=str,
 
 parser.add_argument('--force_delete', action='store_true',
                     help='If matching instances are found delete them and add'
-                    + 'a notification in the message instead of getting out'
-                    + 'in critical state.')
+                    + ' a notification in the message instead of getting out'
+                    + ' in critical state.')
 
 parser.add_argument('--api_version', metavar='api_version', type=str,
                     default='2',
@@ -338,15 +404,37 @@ parser.add_argument('--api_version', metavar='api_version', type=str,
 parser.add_argument('--timeout', metavar='timeout', type=int,
                     default=120,
                     help='Max number of second to create a instance'
-                    + '(120 by default)')
+                    + ' (120 by default)')
 
 parser.add_argument('--timeout_delete', metavar='timeout_delete', type=int,
                     default=45,
                     help='Max number of second to delete an existing instance'
-                    + '(45 by default).')
+                    + ' (45 by default).')
 
 parser.add_argument('--verbose', action='count',
                     help='Print requests on stderr.')
+
+parser.add_argument('--check_ssh', action='store_true',
+                    help='Enable checking ssh login to VM')
+
+parser.add_argument('--timeout_ssh', metavar='timeout_ssh', type=int,
+                    default=45,
+                    help='Max number of seconds to wait for ssh connection'
+                    + ' (45 by default).')
+
+parser.add_argument('--ssh_keypair_name', metavar='ssh_keypair_name', type=str,
+                    default='nagios',
+                    help='Name of ssh keypair in nova ("nagios" by default)"')
+
+parser.add_argument('--ssh_keypair_file', metavar='ssh_keypair_file', type=str,
+                    default='/home/nagios/.ssh/id_rsa',
+                    help='Path to ssh private key file ("/home/nagios/.ssh/id_rsa"'
+                    + ' by default')
+
+parser.add_argument('--ssh_keypair_user', metavar='ssh_keypair_user', type=str,
+                    default='nagios',
+                    help='Username to use during ssh attempts ("nagios"'
+                    + ' by default)."')
 
 args = parser.parse_args()
 
@@ -364,6 +452,7 @@ except Exception as e:
     script_critical("Error creating nova communication object: %s\n" % e)
 
 util = Novautils(nova_client)
+instance_name = "%s_%s" % (args.instance_name, hostname)
 
 if args.verbose:
     ch = logging.StreamHandler()
@@ -379,13 +468,16 @@ if args.endpoint_url:
     # it's valid.
     util.check_connection(force=True)
 
-util.check_existing_instance(args.instance_name,
+util.check_existing_instance(instance_name,
                              args.force_delete,
                              args.timeout_delete)
 util.get_image(args.image_name)
 util.get_flavor(args.flavor_name)
-util.create_instance(args.instance_name)
+util.create_instance(instance_name, args.ssh_keypair_name)
 util.instance_ready(args.timeout)
+if args.check_ssh:
+    util.ssh_to_instance(args.timeout_ssh, args.ssh_keypair_user, 
+    args.ssh_keypair_file, args.verbose)
 util.delete_instance()
 util.instance_deleted(args.timeout)
 
@@ -399,6 +491,9 @@ if util.notifications:
 performance = ""
 if util.performances:
     performance = " ".join(util.performances)
-print("OK - Nova instance spawned and deleted in %d seconds %s| time=%d %s"
-      % (duration, notification, duration, performance))
+ssh_message = ''
+if args.check_ssh:
+    ssh_message = ', ssh connected,'
+print("OK - Nova instance spawned%s and deleted in %d seconds %s| time=%d %s"
+      % (ssh_message, duration, notification, duration, performance))
 sys.exit(STATE_OK)
